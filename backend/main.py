@@ -16,10 +16,16 @@ import time
 # Load environment variables
 load_dotenv()
 
-
-
-posthog = Posthog(os.getenv("POSTHOG_PROJECT_API_KEY"), host='https://us.i.posthog.com')
-
+# Posthog configuration
+posthog_key = os.getenv("POSTHOG_PROJECT_API_KEY")
+if posthog_key:
+    posthog = Posthog(posthog_key, host='https://us.i.posthog.com')
+else:
+    print("Warning: POSTHOG_PROJECT_API_KEY not found in .env. Event tracking disabled.")
+    # Dummy capture method to prevent errors later
+    class MockPosthog:
+        def capture(self, *args, **kwargs): pass
+    posthog = MockPosthog()
 
 origins = [
     "*",
@@ -28,13 +34,15 @@ origins = [
     "http://localhost:8080",
 ]
 
-
-
 # Configuration from environment
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 if not GOOGLE_API_KEY:
-    raise ValueError("GOOGLE_API_KEY must be set in environment variables")
-    
+    print("Warning: GOOGLE_API_KEY not found in .env. Image analysis will fail.")
+
+MURF_API_KEY = os.getenv("MURF_API_KEY")
+if not MURF_API_KEY:
+    print("Warning: MURF_API_KEY not found in .env. TTS will be disabled.")
+
 CONTEXT_HISTORY_SIZE = int(os.getenv("CONTEXT_HISTORY_SIZE", "5"))
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
@@ -316,6 +324,69 @@ async def get_context_history():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+
+class TTSRequest(BaseModel):
+    text: str
+    voice_id: Optional[str] = "en-US-cooper"  # Default Murf Falcon voice
+    speed: Optional[float] = 1.0
+
+
+@app.post("/tts")
+async def text_to_speech(request: TTSRequest):
+    """Convert text to speech using Murf Falcon TTS API"""
+    if not MURF_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Murf API key not configured. Set MURF_API_KEY in environment variables."
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://global.api.murf.ai/v1/speech/stream",
+                headers={
+                    "api-key": MURF_API_KEY,
+                    "Content-Type": "application/json",
+                    "Accept": "audio/mpeg",
+                },
+                json={
+                    "voiceId": request.voice_id,
+                    "text": request.text,
+                    "modelVersion": "FALCON",
+                    "speed": request.speed,
+                    "format": "MP3",
+                }
+            )
+
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Murf API error: {response.text}"
+                )
+
+            # Track TTS usage
+            posthog.capture(
+                distinct_id=str(datetime.utcnow().timestamp()),
+                event="tts_generated",
+                properties={
+                    "voice_id": request.voice_id,
+                    "text_length": len(request.text),
+                    "model": "FALCON"
+                }
+            )
+
+            from fastapi.responses import Response
+            return Response(
+                content=response.content,
+                media_type="audio/mpeg",
+                headers={"Content-Disposition": "inline; filename=speech.mp3"}
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"TTS generation failed: {str(e)}")
 
 @app.delete("/context/clear")
 async def clear_context():

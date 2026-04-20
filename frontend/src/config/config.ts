@@ -6,4 +6,5 @@ export const API_ENDPOINTS = {
   contextLatest: `${API_BASE_URL}/context/latest`,
   contextHistory: `${API_BASE_URL}/context/history`,
   clearContext: `${API_BASE_URL}/context/clear`,
+  tts: `${API_BASE_URL}/tts`,
 };
