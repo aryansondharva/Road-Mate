@@ -1,4 +1,4 @@
-# Road-Mate: AI-Powered Drowsy Driving Prevention sys
+# Road-Mate: AI-Powered Drowsy Driving Prevention system
 
 This application helps prevent drowsy driving by providing real-time analysis of driver behavior through voice and video streams. The system uses Google's Gemini AI to monitor driver alertness and provides interactive conversation to keep drivers engaged and safe. The project consists of a React frontend, FastAPI backend, and mobile applications.
 
